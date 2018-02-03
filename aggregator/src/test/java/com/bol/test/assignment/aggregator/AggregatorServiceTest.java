@@ -1,5 +1,7 @@
 package com.bol.test.assignment.aggregator;
 
+import java.util.concurrent.ExecutionException;
+
 import com.bol.test.assignment.offer.Offer;
 import com.bol.test.assignment.offer.OfferService;
 import com.bol.test.assignment.order.Order;
@@ -8,8 +10,6 @@ import com.bol.test.assignment.product.Product;
 import com.bol.test.assignment.product.ProductService;
 import org.junit.Test;
 import org.mockito.invocation.InvocationOnMock;
-
-import java.util.concurrent.ExecutionException;
 
 import static com.bol.test.assignment.offer.OfferCondition.AS_NEW;
 import static com.bol.test.assignment.offer.OfferCondition.UNKNOWN;
@@ -114,5 +114,72 @@ public class AggregatorServiceTest {
         when(orderService.getOrder(sellerId)).thenThrow(new RuntimeException("Order service failed"));
 
         aggregatorService.enrich(sellerId);
+    }
+
+    /**
+     * Confirm that services won't block main thread for longer than 2000 ms.
+     * @throws InterruptedException
+     * @throws ExecutionException
+     */
+    @Test
+    public void offerAndProductServicesAreTooSlow() throws InterruptedException, ExecutionException {
+        when(orderService.getOrder(sellerId)).thenReturn(new Order(orderId, offerId, productId));
+        when(offerService.getOffer(offerId)).thenAnswer(
+            (InvocationOnMock invocationOnMock) -> {
+                Thread.sleep(2001);
+                return new Offer(offerId, AS_NEW);
+            }
+        );
+        when(productService.getProduct(productId)).thenAnswer(
+            (InvocationOnMock invocationOnMock) -> {
+                Thread.sleep(2001);
+                return new Product(productId, title);
+            }
+        );
+
+
+        EnrichedOrder enrichedOrder = aggregatorService.enrich(sellerId);
+        assertThat(enrichedOrder.getId(), is(orderId));
+        assertNull(enrichedOrder.getProductTitle());
+        assertThat(enrichedOrder.getOfferId(), is(-1));
+        assertThat(enrichedOrder.getOfferCondition(), is(UNKNOWN));
+    }
+
+    @Test
+    public void offerServiceIsTooSlow() throws InterruptedException, ExecutionException {
+        when(orderService.getOrder(sellerId)).thenReturn(new Order(orderId, offerId, productId));
+        when(offerService.getOffer(offerId)).thenAnswer(
+            (InvocationOnMock invocationOnMock) -> {
+                Thread.sleep(2001);
+                return new Offer(offerId, AS_NEW);
+            }
+        );
+        when(productService.getProduct(productId)).thenReturn(new Product(productId, title));
+
+
+        EnrichedOrder enrichedOrder = aggregatorService.enrich(sellerId);
+        assertThat(enrichedOrder.getId(), is(orderId));
+        assertThat(enrichedOrder.getProductTitle(), is(title));
+        assertThat(enrichedOrder.getOfferId(), is(-1));
+        assertThat(enrichedOrder.getOfferCondition(), is(UNKNOWN));
+    }
+
+    @Test
+    public void productServiceIsTooSlow() throws InterruptedException, ExecutionException {
+        when(orderService.getOrder(sellerId)).thenReturn(new Order(orderId, offerId, productId));
+        when(offerService.getOffer(offerId)).thenReturn(new Offer(offerId, AS_NEW));
+        when(productService.getProduct(productId)).thenAnswer(
+            (InvocationOnMock invocationOnMock) -> {
+                Thread.sleep(2001);
+                return new Product(productId, title);
+            }
+        );
+
+
+        EnrichedOrder enrichedOrder = aggregatorService.enrich(sellerId);
+        assertThat(enrichedOrder.getId(), is(orderId));
+        assertNull(enrichedOrder.getProductTitle());
+        assertThat(enrichedOrder.getOfferId(), is(offerId));
+        assertThat(enrichedOrder.getOfferCondition(), is(AS_NEW));
     }
 }
